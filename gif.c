@@ -4,8 +4,15 @@
 #include <assert.h>
 
 
+#define GIF_U16_MAX     0xFFFF
+
+
+typedef unsigned int    gif_u32;
 typedef int             gif_bool;
-typedef unsigned int    gif_uint;
+
+
+#define gif_true        1
+#define gif_false       0
 
 
 struct gif {
@@ -15,32 +22,30 @@ struct gif {
 
 
 static void
-write_bytes (struct gif *gif, void *ptr, size_t sz)
+write_bytes (struct gif *gif, void const *ptr, size_t sz)
 {
     gif->write_fn (gif->write_ud, ptr, sz);
 }
 
 
 static void
-write_byte (struct gif *gif, gif_byte b)
+write_byte (struct gif *gif, gif_u8 b)
 {
     write_bytes (gif, &b, 1);
 }
 
 
 static void
-write_word (struct gif *gif, gif_word  w)
+write_word (struct gif *gif, gif_u16  w)
 {
     write_bytes (gif, &w, 2);
 }
 
-
-
-/* ----------------------- dictionary pattern -----------------------
+/* ---------------------- dictionary patterns -----------------------
    Definitions for a dictionary which is used to map pattern to codes
    and vice versa. */
 
-#define NIL_ID              UINT16_MAX
+#define NIL_ID              GIF_U16_MAX
 #define HASH_SIZE           8192
 
 #define ALPH_BIT_SIZE       8
@@ -61,53 +66,167 @@ struct pattern {
        within the `i` index using bitfields. This might be
        slow? But we don't care that much about performance
        here anyways .. */
-    int is_char : 1;
+    gif_u32 is_char : 1;
 
     /* By convention, if the pattern is stored as a single
        character, we store that character in `i`. */
-    int i : 31;
-    int j;
+    gif_u32 i : 31;
+    gif_u32 j;
 };
 
 
-#define get_pattern_len(pat)                    \
-    (assert ((pat)->i <= (pat)->j),             \
-     (pat)->is_char ? 1 : (pat)->j - (pat)->i + 1)
+
+static gif_u32
+get_pattern_length (struct pattern const *pat)
+{
+    assert (pat->i <= pat->j);
+    return pat->is_char ? 1 : pat->j - pat->i + 1;
+}
 
 
 static gif_bool
-patterns_match (gif_byte const *str,
+patterns_match (gif_u8 const *str,
                 struct pattern const *a,
                 struct pattern const *b)
 {
-    gif_uint n;
-    n = patlen (a);
-    if (n != patlen (b)) {
-        return false;
+    gif_u32 n;
+    n = get_pattern_length (a);
+    if (n != get_pattern_length (b)) {
+        return gif_false;
     }
     else if (a->is_char) {
-        expect (b->is_char);
+        assert (b->is_char);
         return a->i == b->i;
     }
     else {
-        gif_uint i = 0;
+        gif_u32 i = 0;
         for (i = 0; i < n; i++)
             if (str[a->i + i] != str[b->i + i])
-                return false;
-         return true;
+                return gif_false;
+         return gif_true;
     }
 }
 
 
-static gif_uint
-hash (gif_byte const *str, struct pattern const *pat)
+static gif_u32
+hash (gif_u8 const *str, struct pattern const *pat)
 {
-    gif_uint i, h;
+    gif_u32 i, h;
     assert (!pat->is_char);
     h = 0;
     for (i = pat->i; i <= pat->j; i++)
-        h = 37 * h + (gif_uint) str[i];
+        h = 37 * h + (gif_u32) str[i];
     return h;
+}
+
+
+struct entry {
+    struct pattern pat;
+    gif_u16 next;
+};
+
+
+struct dict {
+    gif_u16 first[HASH_SIZE];
+    struct entry entries[MAX_CODE_COUNT];
+    gif_u32 nentries;
+};
+
+
+/* Converts a identifier of a pattern within the dictionary
+   to the actual LZW code for that pattern. */
+#define dict_id_to_code(id)             \
+    ((id) + FIRST_COMPR_CODE)
+#define code_to_dict_id(code)           \
+    (assert (code >= FIRST_COMPR_CODE), \
+     (code) - FIRST_COMPR_CODE)
+
+
+static struct entry
+make_entry (struct pattern const *pat, gif_u16 next)
+{
+    struct entry e;
+    e.pat = *pat;
+    e.next = next;
+    return e;
+}
+
+
+static void
+dict_clear (struct dict *dict)
+{
+    gif_u32 i;
+    for (i = 0; i < HASH_SIZE; i++)
+        dict->first[i] = NIL_ID;
+    dict->nentries = 0;
+}
+
+
+static gif_u16
+dict_add_pattern (struct dict *dict, gif_u8 const *in,
+                  struct pattern const *pat)
+{
+    gif_u32 h;
+    struct entry e;
+
+    if (pat->is_char)
+        return (gif_u16) pat->i;
+
+    h = hash (in, pat) % HASH_SIZE;
+    e = make_entry (pat, dict->first[h]);
+    dict->entries[dict->nentries] = e;
+    dict->first[h] = dict->nentries++;
+    return FIRST_COMPR_CODE + dict->nentries - 1;
+}
+
+
+static gif_bool
+dict_get_code (struct dict *dict, gif_u8 const *str,
+               struct pattern const *pat, gif_u16 *code)
+{
+    if (get_pattern_length (pat) == 1) {
+        *code = (gif_u16) str[pat->i];
+        return gif_true;
+    }
+    else {
+        gif_u32 h;
+        gif_u16 id;
+
+        h = hash (str, pat) % HASH_SIZE;
+        id = dict->first[h];
+        while (id != NIL_ID) {
+            struct entry *e;
+
+            e = dict->entries + id;
+            if (patterns_match (str, pat, &e->pat)) {
+                *code = dict_id_to_code (id);
+                return gif_true;
+            }
+            id = e->next;
+        }
+        return gif_false;
+    }
+}
+
+
+static gif_bool
+dict_get_pattern (struct dict *dict, gif_u16 code, struct pattern *pat)
+{
+    gif_u16 id;
+
+    if (code < CLEAR_CODE) {
+        pat->is_char = 1;
+        pat->i = (gif_u32) code;
+        return gif_true;
+    }
+    id = code_to_dict_id (code);
+    if (dict->nentries <= id) {
+        return gif_false;
+    }
+    else {
+        *pat = dict->entries[id].pat;
+        return gif_true;
+    }
 }
 
 /* -------------------------- gif encoding -------------------------- */
@@ -139,7 +258,7 @@ gif_begin (struct gif_desc const *desc)
 
 
 void
-gif_add_frame (struct gif *gif, struct gif_frame *f)
+gif_add_frame (struct gif const *gif, struct gif_frame const *f)
 {
 
 }

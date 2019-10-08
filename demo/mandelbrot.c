@@ -21,7 +21,7 @@ main (int argc, char **argv)
     struct gif *gif;
     struct gif_desc desc;
     struct gif_frame frm;
-    gif_byte cols[W * H];
+    gif_u8 cols[W * H];
     FILE *file;
 
     file = fopen (PATH, "w");
@@ -36,9 +36,9 @@ main (int argc, char **argv)
     frm.cols = cols;
 
     gif = gif_begin (&desc);
-    gif_add_frame(gif, &frm);
-    gif_add_frame(gif, &frm);
-    gif_add_frame(gif, &frm);
+    gif_add_frame (gif, &frm);
+    gif_add_frame (gif, &frm);
+    gif_add_frame (gif, &frm);
     gif_end (&gif);
 
     fclose (file);

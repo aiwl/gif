@@ -5,11 +5,11 @@
 #include <stddef.h>
 
 
-typedef unsigned char   gif_byte;
-typedef unsigned short  gif_word;
+typedef unsigned char   gif_u8;
+typedef unsigned short  gif_u16;
 
 
-/* TODO Static assert the size of gif_byte and gif_word. */
+/* TODO Static assert the size of gif_u8 and gif_u16. */
 
 
 typedef void (*gif_write) (void *ud, void const *ptr, size_t sz);
@@ -19,9 +19,9 @@ struct gif;
 
 
 struct gif_desc {
-    gif_word w, h;
-    gif_word ti;
-    gif_byte gct[256][3];
+    gif_u16 w, h;
+    gif_u16 ti;
+    gif_u8 gct[256][3];
 
     void *write_ud;
     gif_write write_fn;
@@ -29,8 +29,8 @@ struct gif_desc {
 
 
 struct gif_frame {
-    gif_byte (*lct)[3];  
-    gif_byte *cols;
+    gif_u8 (*lct)[3];
+    gif_u8 *cols;
 };
 
 
