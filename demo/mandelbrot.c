@@ -5,8 +5,8 @@
 
 
 #define PATH    "mandelbrot.gif"
-#define W       256
-#define H       256
+#define W       1024
+#define H       512
 
 
 #define at(frm, i, j) frm->cols[(i) * W + (j)]
@@ -27,40 +27,33 @@ write (void *ud, void const *ptr, size_t sz)
 
 
 static void
-add_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
+add_mandelbrot_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
 {
-#if 0
-    int i = 0;
-
-    for (i = 0; i < W * H; i++)
-        frm->cols[i] = idx;
-    gif_add_frame (gif, frm);
-#else
     int i, j;
     for (i = 0; i < H; i++) {
         for (j = 0; j < W; j++) {
-            //float x0, y0;
-            //float x, y;
-            //int k;
+            float x0, y0;
+            float x, y;
+            int k;
 
-            //x = y = 0.0f;
-            //x0 = (j + 0.5f) / ((float) W);
-            //y0 = (i + 0.5f) / ((float) H);
-            //x0 = -2.5f + x0 * 3.5f;
-            //y0 = -1.0f + y0 * 2.0f;
-            //for (k = 0; k < 256; k++) {
-            //    float x1;
+            x = y = 0.0f;
+            x0 = (j + 0.5f) / ((float) W);
+            y0 = (i + 0.5f) / ((float) H);
+            x0 = -2.5f + x0 * 3.5f;
+            y0 = -1.0f + y0 * 2.0f;
+            for (k = 0; k < 50; k++) {
+                float x1;
 
-            //    x1 = x * x - y * y + x0;
-            //    y = 2 * x * y + y0;
-            //    x = x1;
-            //    if ((x * x + y * y) > (2 * 2))
-            //        break;
-            //}
-            at (frm, i, j) = i;
+                x1 = x * x - y * y + x0;
+                y = 2 * x * y + y0;
+                x = x1;
+                if ((x * x + y * y) > (2 * 2))
+                    break;
+            }
+            at (frm, i, j) = k * 5;
         }
     }
-#endif
+    gif_add_frame (gif, frm);
 }
 
 
@@ -83,7 +76,7 @@ jet (float v, float vmin, float vmax)
     } 
     else if (v < (vmin + 0.75f * dv)) {
         c.r = 4.0f * (v - vmin - 0.5f * dv) / dv;
-        c.g = 0.0f;
+        c.b = 0.0f;
     } 
     else {
         c.g = 1.0f + 4.0f * (vmin + 0.75f * dv - v) / dv;
@@ -128,7 +121,7 @@ main (int argc, char **argv)
     frm.cols = (gif_u8 *) malloc (W * H);
 
     gif = gif_begin (&desc);
-    add_frame (gif, &frm, 0);
+    add_mandelbrot_frame (gif, &frm, 0);
 //    add_frame (gif, &frm, 100);
 //    add_frame (gif, &frm, 200);
     gif_end (&gif);
