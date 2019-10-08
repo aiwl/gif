@@ -127,7 +127,6 @@ buf_open (void const *ptr, size_t sz)
     return buf;
 }
 
-
 /* Closes the buffer pointed to by `buf` and releases all its
    resources. */
 static void
@@ -138,7 +137,6 @@ buf_close (struct buffer *buf)
     free (buf->ptr);
     free (buf);
 }
-
 
 static void
 buf_resize (struct buffer *buf, size_t newsz)
@@ -158,7 +156,6 @@ buf_resize (struct buffer *buf, size_t newsz)
     buf->sz = newsz;
     buf->cur = min (buf->cur, newsz);
 }
-
 
 /* ----------------------------- bit io ----------------------------- */
 
@@ -181,7 +178,6 @@ calc_rem_bits (size_t bitcur)
     return (gif_u8) ((((bitcur) + 7) / 8) * 8 - (bitcur));
 }
 
-
 /* Takes `n` bits from `b` starting at `fb` and puts them to `a` starting
    from bit `fa`. Returns the resulting combination. */
 static gif_u8
@@ -196,14 +192,12 @@ put_bits (gif_u8 a, gif_u8 b, gif_u8 fa, gif_u8 fb, gif_u8 n)
     return (a & ~m) | (((b >> fb) << fa) & m);
 }
 
-
 static void
 init_bit_io (struct bit_io *io, struct buffer *buf)
 {
     io->buf = buf;
     io->bitcur = 8 * buf->cur;
 }
-
 
 /* Write the first `nbits` stored in the `u` to the buffer. `nbits`
    should be in 0..16. */
@@ -237,7 +231,6 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
         u >>= n;
     }
 }
-
 
 /* ---------------------- dictionary patterns -----------------------
    Definitions for a dictionary which is used to map pattern to codes
@@ -281,7 +274,6 @@ get_pattern_length (struct pattern const *pat)
     return pat->is_char ? 1 : pat->j - pat->i + 1;
 }
 
-
 static gif_bool
 patterns_match (gif_u8 const *str, struct pattern const *a,
                 struct pattern const *b)
@@ -303,7 +295,6 @@ patterns_match (gif_u8 const *str, struct pattern const *a,
          return gif_true;
     }
 }
-
 
 static gif_u32
 hash (gif_u8 const *str, struct pattern const *pat)
@@ -348,7 +339,6 @@ make_entry (struct pattern const *pat, gif_u16 next)
     return e;
 }
 
-
 static void
 clear_dict (struct dict *dict)
 {
@@ -357,7 +347,6 @@ clear_dict (struct dict *dict)
         dict->first[i] = NIL_ID;
     dict->nentries = 0;
 }
-
 
 static gif_u16
 add_pattern (struct dict *dict, gif_u8 const *in,
@@ -375,7 +364,6 @@ add_pattern (struct dict *dict, gif_u8 const *in,
     dict->first[h] = dict->nentries++;
     return FIRST_COMPR_CODE + dict->nentries - 1;
 }
-
 
 static gif_bool
 get_code (struct dict *dict, gif_u8 const *str,
@@ -404,7 +392,6 @@ get_code (struct dict *dict, gif_u8 const *str,
         return gif_false;
     }
 }
-
 
 /* ------------------------ lzw transcoding ------------------------- */
 
@@ -469,7 +456,6 @@ done:
     return buf;
 }
 
-
 /* -------------------------- gif encoding -------------------------- */
 
 struct gif *
@@ -500,7 +486,6 @@ gif_begin (struct gif_desc const *desc)
     return gif;
 }
 
-
 /* Writes `nbytes` of memory pointed to by `bytes` as a sequence of
    blocks of max. 255 bytes to the buffer. We use this function to
    write the compressed color indices of the gif's image data. */
@@ -523,7 +508,6 @@ write_sub_blocks (struct gif *gif, gif_u8 const *bytes, size_t nbytes)
     write_byte (gif, 0);
 }
 
-
 /* Writes `n` color indices, `cols`, of a gif image to the buffer. */
 static void
 write_color_indices (struct gif *gif, gif_u8 *cols, size_t n)
@@ -533,7 +517,6 @@ write_color_indices (struct gif *gif, gif_u8 *cols, size_t n)
     write_sub_blocks (gif, compr_cols->ptr, compr_cols->sz);
     buf_close (compr_cols);
 }
-
 
 void
 gif_add_frame (struct gif *gif, struct gif_frame const *frm)
@@ -564,7 +547,6 @@ gif_add_frame (struct gif *gif, struct gif_frame const *frm)
 
     write_color_indices (gif, frm->cols, gif->w * gif->h);
 }
-
 
 void
 gif_end (struct gif **gif)
