@@ -26,8 +26,8 @@ main (int argc, char **argv)
 
     file = fopen (PATH, "w");
 
-    desc.w = 256;
-    desc.h = 256;
+    desc.w = W;
+    desc.h = H;
     desc.ti = 0;
     desc.write_fn = write;
     desc.write_ud = file;
