@@ -25,7 +25,7 @@ GIF_STATIC_ASSERT (sizeof (gif_u32) == 4);
 
 
 /* Offsets `ptr` by `n` bytes. */
-#define offset_ptr(ptr, n)                                  \
+#define offset_ptr(ptr, n)    \
     ((void *) (((uintptr_t) (ptr)) + n))
 
 
