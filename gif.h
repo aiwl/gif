@@ -2,11 +2,17 @@
 #define GIF_H
 
 
+#include <stddef.h>
+
 
 typedef unsigned char   gif_byte;
 typedef unsigned short  gif_word;
 
-typedef void (*gif_write) (void *ud, void *ptr, size_t sz);
+
+/* TODO Static assert the size of gif_byte and gif_word. */
+
+
+typedef void (*gif_write) (void *ud, void const *ptr, size_t sz);
 
 
 struct gif;
@@ -28,8 +34,8 @@ struct gif_frame {
 };
 
 
-struct gif *gif_begin (struct gif_desc *);
-void gif_add_frame (struct gif *gif, struct gif_frame *f);
+struct gif *gif_begin (struct gif_desc const *desc);
+void gif_add_frame (struct gif const *gif, struct gif_frame const *f);
 void gif_end (struct gif **gif);
 
 
