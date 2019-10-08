@@ -37,7 +37,7 @@ struct gif_frame {
 
 
 struct gif *gif_begin (struct gif_desc const *desc);
-void gif_add_frame (struct gif *gif, struct gif_frame const *f);
+void gif_add_frame (struct gif *gif, struct gif_frame const *frm);
 void gif_end (struct gif **gif);
 
 

@@ -71,7 +71,7 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
 /* Returns a pointer to the byte a position `i` in `buf`. `i` must be
    smaller than the buffer's size. */
 #define buf_byte_at(buf, i)                 \
-    (assert (i < ((buf)->sz - 1)),          \
+    (assert (i < (buf)->sz),                \
      (gif_u8 *) offset_ptr (buf->ptr, i))
 
 
@@ -247,8 +247,8 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
 }
 
 
-/* Reads NBITS bits from IO and stores the result in U. Returns the
-   number of bits actually read. */
+/* Reads `nbits` bits from `io` and stores the result in `u`. Returns
+   the number of bits actually read. */
 static gif_u8
 read_bits (struct bit_io *io, gif_u16 *u, gif_u8 nbits)
 {
@@ -576,38 +576,38 @@ gif_begin (struct gif_desc const *desc)
    blocks of max. 255 bytes to the buffer. We use this function to
    write the compressed color indices of the gif's image data. */
 static void
-write_sub_blocks (struct buffer *buf, gif_u8 const *bytes, size_t nbytes)
+write_sub_blocks (struct gif *gif, gif_u8 const *bytes, size_t nbytes)
 {
     /* Write LZW minimum code size. */
-    buf_write_u8 (buf, 8);
+    write_byte (gif, 8);
 
     /* Write sequence of sub blocks. */
     while (nbytes) {
         gif_u8 n = (gif_u8) min (nbytes, 255);
-        buf_write_u8 (buf, n);  /* block size */
-        buf_write (buf, bytes, n);
+        write_byte (gif, n);  /* block size */
+        write_bytes (gif, bytes, n);
         bytes += n;
         nbytes -= n;
     }
 
     /* Write block terminator. */
-    buf_write_u8 (buf, 0);
+    write_byte (gif, 0);
 }
 
 
 /* Writes `n` color indices, `cols`, of a gif image to the buffer. */
 static void
-write_color_indices (struct buffer *buf, gif_u8 *cols, size_t n)
+write_color_indices (struct gif *gif, gif_u8 *cols, size_t n)
 {
     struct buffer *compr_cols = NULL;
     compr_cols = lzw_compress (cols, n);
-    write_sub_blocks (buf, compr_cols->ptr, compr_cols->sz);
+    write_sub_blocks (gif, compr_cols->ptr, compr_cols->sz);
     buf_close (compr_cols);
 }
 
 
 void
-gif_add_frame (struct gif *gif, struct gif_frame const *f)
+gif_add_frame (struct gif *gif, struct gif_frame const *frm)
 {
     /* Graphic control extension */
     write_byte (gif, 0x21);
@@ -625,14 +625,15 @@ gif_add_frame (struct gif *gif, struct gif_frame const *f)
     write_word (gif, gif->w);
     write_word (gif, gif->h);
 
-    if (f->lct) {
+    if (frm->lct) {
         write_byte (gif, 0x83);
-        write_bytes (gif, f->lct, 256 * 3);
+        write_bytes (gif, frm->lct, 256 * 3);
     }
     else {
         write_byte (gif, 0x00);
     }
-    //write_color_indices (buf, im->cols, gif->w * gif->h);
+
+    write_color_indices (gif, frm->cols, gif->w * gif->h);
 }
 
 

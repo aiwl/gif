@@ -1,6 +1,7 @@
 #include "../gif.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 
 #define PATH    "mandelbrot.gif"
@@ -15,13 +16,23 @@ write (void *ud, void const *ptr, size_t sz)
 }
 
 
+static void
+add_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
+{
+    int i = 0;
+
+    for (i = 0; i < W * H; i++)
+        frm->cols[i] = idx;
+    gif_add_frame (gif, frm);
+}
+
+
 int
 main (int argc, char **argv)
 {
     struct gif *gif;
     struct gif_desc desc;
     struct gif_frame frm;
-    gif_u8 cols[W * H];
     FILE *file;
 
     file = fopen (PATH, "w");
@@ -32,8 +43,20 @@ main (int argc, char **argv)
     desc.write_fn = write;
     desc.write_ud = file;
 
+    desc.gct[0][0] = 255;
+    desc.gct[0][1] = 0;
+    desc.gct[0][2] = 255;
+
+    desc.gct[1][0] = 255;
+    desc.gct[1][1] = 255;
+    desc.gct[1][2] = 0;
+
+    desc.gct[2][0] = 255;
+    desc.gct[2][1] = 0;
+    desc.gct[2][2] = 0;
+
     frm.lct = NULL;
-    frm.cols = cols;
+    frm.cols = (gif_u8 *) malloc (W * H);
 
     gif = gif_begin (&desc);
     gif_add_frame (gif, &frm);
