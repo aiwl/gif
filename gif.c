@@ -409,7 +409,7 @@ get_code (struct dict *dict, gif_u8 const *str,
    bytes as a buffer. The caller is responsible to free the returned
    buffer. */
 static struct buffer *
-lzw_compress(gif_u8 const *bytes, size_t nbytes)
+lzw_compress (gif_u8 const *bytes, size_t nbytes)
 {
     struct bit_io io;
     struct dict *dict = NULL;
