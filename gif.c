@@ -158,16 +158,6 @@ buf_resize (struct buffer *buf, size_t newsz)
 }
 
 
-/* Adds SZ bytes of memory pointed to by PTR after the buffer cursor
-   and advances the cursor by SZ bytes. Resizes the buffer if needed. */
-static void
-buf_write (struct buffer *buf, void const *ptr, size_t sz)
-{
-    buf_resize (buf, buf->sz + sz);
-    memcpy (offset_ptr (buf->ptr, buf->cur), ptr, sz);
-    buf->cur += sz;
-}
-
 /* ----------------------------- bit io ----------------------------- */
 
 /* Helper structure for reading and writing of bits to a buffer. */
@@ -244,49 +234,6 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
         nbits -= n;
         u >>= n;
     }
-}
-
-
-/* Reads `nbits` bits from `io` and stores the result in `u`. Returns
-   the number of bits actually read. */
-static gif_u8
-read_bits (struct bit_io *io, gif_u16 *u, gif_u8 nbits)
-{
-    gif_u8 br = 0;
-
-    assert (nbits <= 16);
-
-    *u = 0;
-    if (!nbits)
-        return 0;
-
-    if (io->bitcur & 7) { /* remaining bits is last read byte? */
-        gif_u8 rem_bits, *cur_byte, n;
-
-        rem_bits = calc_rem_bits (io->bitcur);
-        cur_byte = buf_byte_at (io->buf, io->bitcur / 8);
-        n = min (nbits, rem_bits);
-        *u = put_bits ((*u) & 0xFF, *cur_byte, 0, 8 - rem_bits, n);
-        io->bitcur += n;
-        nbits -= n;
-        br += n;
-    }
-    while (nbits) {
-        gif_u8 n, byte;
-        gif_u16 utmp;
-        gif_u32 nbytes;
-
-        n = min (nbits, 8);
-        nbytes = buf_read_u8 (io->buf, &byte);
-        if (!nbytes)
-            return br;
-        utmp = (gif_u16) put_bits (0, byte, 0, 0, n);
-        *u = (*u) | (utmp << br);
-        io->bitcur += n;
-        nbits -= n;
-        br += n;
-    }
-    return br;
 }
 
 
@@ -456,26 +403,6 @@ get_code (struct dict *dict, gif_u8 const *str,
     }
 }
 
-
-static gif_bool
-get_pattern (struct dict *dict, gif_u16 code, struct pattern *pat)
-{
-    gif_u16 id;
-
-    if (code < CLEAR_CODE) {
-        pat->is_char = 1;
-        pat->i = (gif_u32) code;
-        return gif_true;
-    }
-    id = code_to_dict_id (code);
-    if (dict->nentries <= id) {
-        return gif_false;
-    }
-    else {
-        *pat = dict->entries[id].pat;
-        return gif_true;
-    }
-}
 
 /* ------------------------ lzw transcoding ------------------------- */
 
