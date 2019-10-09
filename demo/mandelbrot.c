@@ -27,7 +27,7 @@ write (void *ud, void const *ptr, size_t sz)
 
 
 static void
-add_mandelbrot_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
+add_mandel_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
 {
     int i, j;
     for (i = 0; i < H; i++) {
