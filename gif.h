@@ -26,6 +26,8 @@ typedef unsigned short  gif_u16;
 GIF_STATIC_ASSERT (sizeof (gif_u8) == 1);
 GIF_STATIC_ASSERT (sizeof (gif_u16) == 2);
 
+
+typedef void (*gif_read) (void *ud, void *ptr, size_t sz);
 typedef void (*gif_write) (void *ud, void const *ptr, size_t sz);
 
 

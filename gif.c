@@ -76,10 +76,10 @@ struct buf { gif_u8 *ptr; size_t sz, cap, cur; };
 #define buf_write_t(buf, T, val)                                \
     do {                                                        \
         buf_resize ((buf), (buf)->sz + sizeof (T));             \
-        *((T *) offset_ptr ((buf)->ptr, (buf)->cur)) = (val);   \
+        *((T *) ((buf)->ptr + (buf)->cur)) = (val);             \
         (buf)->cur += sizeof (T);                               \
     } while (0)
-#define buf_write_byte(buf, val)                                  \
+#define buf_write_byte(buf, val)                                \
     buf_write_t ((buf), gif_u8, (val))
 
 
@@ -90,7 +90,7 @@ struct buf { gif_u8 *ptr; size_t sz, cap, cur; };
     (buf_left (buf) < sizeof (T))                               \
      ? 0 : (*(val) = *((T *) buf_byte_at (buf, buf->cur)),      \
            buf->cur += sizeof (T), sizeof (T))
-#define buf_read_byte(buf, val)                                   \
+#define buf_read_byte(buf, val)                                 \
     buf_read_t (buf, gif_u8, val)
 
 
@@ -596,7 +596,7 @@ read_code:
                 gif_u8 b;
                 for (k = prev_code_pat.i; k <= prev_code_pat.j; k++) {
                     b = *buf_byte_at (out, k);
-                    buf_write_byte(out, b);
+                    buf_write_byte (out, b);
                 }
                 b = *buf_byte_at (out, prev_code_pat.i);
                 buf_write_byte (out, b);
@@ -751,14 +751,32 @@ gif_end (struct gif **gif)
 
 /* --------------------------- lzw tests ---------------------------- */
 
-#ifdef GIF_LZW_TESTS
+//#ifdef GIF_LZW_TESTS
+
+#define N       (1024 * 1024)
+
+
+static struct buf *
+filled_buf (gif_u32 val)
+{
+    int i;
+    struct buf *buf;
+    buf = buf_open (NULL, 0);
+    for (i = 0; i < N; i++)
+        buf_write_byte (buf, val);
+    return buf;
+}
 
 
 int
 main (int argc, char **argv)
 {
+    struct buf *in, *compr, *decompr;
+    in = filled_buf (42);
+    compr = lzw_compress (in->ptr, in->sz);
+    decompr = lzw_decompress (compr);
     return 0;
 }
 
 
-#endif
+//#endif
