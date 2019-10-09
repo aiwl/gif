@@ -66,7 +66,7 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
 
 
 /* Returns the amount of bytes left to read from the buffer. */
-#define buf_left(buf)           \
+#define buf_left(buf)                       \
     ((buf)->sz - (buf)->cur)
 
 
@@ -87,8 +87,6 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
     } while (0)
 #define buf_write_u8(buf, val)                                  \
     buf_write_t ((buf), gif_u8, (val))
-#define buf_write_u16(buf, val)                                 \
-    buf_write_t ((buf), gif_u16, (val))
 
 
 /* Reads from `buf` an value of a specific type and stores it into `val`
@@ -100,8 +98,6 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
            buf->cur += sizeof (T), sizeof (T))
 #define buf_read_u8(buf, val)                                   \
     buf_read_t (buf, gif_u8, val)
-#define buf_read_u16(buf, val)                                  \
-    buf_read_t (buf, gif_u16, val)
 
 
 /* Creates a new buffer and returns a pointer to it. `sz` is the size
@@ -235,6 +231,49 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
         nbits -= n;
         u >>= n;
     }
+}
+
+
+/* Reads `nbits` bits from `io` and stores the result in `u`. Returns
+   the number of bits actually read. */
+static gif_u8
+read_bits (struct bit_io *io, gif_u16 *u, gif_u8 nbits)
+{
+    gif_u8 br = 0;
+
+    assert (nbits <= 16);
+
+    *u = 0;
+    if (!nbits)
+        return 0;
+
+    if (io->bitcur & 7) { /* remaining bits is last read byte? */
+        gif_u8 rem_bits, *cur_byte, n;
+
+        rem_bits = calc_rem_bits (io->bitcur);
+        cur_byte = buf_byte_at (io->buf, io->bitcur / 8);
+        n = min (nbits, rem_bits);
+        *u = put_bits ((*u) & 0xFF, *cur_byte, 0, 8 - rem_bits, n);
+        io->bitcur += n;
+        nbits -= n;
+        br += n;
+    }
+    while (nbits) {
+        gif_u8 n, byte;
+        gif_u16 utmp;
+        gif_u32 nbytes;
+
+        n = min (nbits, 8);
+        nbytes = buf_read_u8 (io->buf, &byte);
+        if (!nbytes)
+            return br;
+        utmp = (gif_u16) put_bits (0, byte, 0, 0, n);
+        *u = (*u) | (utmp << br);
+        io->bitcur += n;
+        nbits -= n;
+        br += n;
+    }
+    return br;
 }
 
 /* ---------------------- dictionary patterns -----------------------
@@ -403,6 +442,27 @@ get_code (struct dict *dict, gif_u8 const *str,
     }
 }
 
+
+static gif_bool
+get_pattern (struct dict *dict, gif_u16 code, struct pattern *pat)
+{
+    gif_u16 id;
+
+    if (code < CLEAR_CODE) {
+        pat->is_char = 1;
+        pat->i = (gif_u32) code;
+        return gif_true;
+    }
+    id = code_to_dict_id (code);
+    if (dict->nentries <= id) {
+        return gif_false;
+    }
+    else {
+        *pat = dict->entries[id].pat;
+        return gif_true;
+    }
+}
+
 /* ------------------------ lzw transcoding ------------------------- */
 
 /* Compresses `nbytes` pointed to by `bytes` and returns the compressed
@@ -465,6 +525,136 @@ done:
     free (dict);
     return buf;
 }
+
+
+#if 1
+
+
+static struct buffer *
+lzw_decompress (struct buffer *in)
+{
+    /* This pattern used to update the dictionary
+       during decoding. */
+    struct pattern pat_dict;
+    struct pattern code_pat = { 0 };
+    struct pattern prev_code_pat = { 0 };
+    struct bit_io io;
+    struct dict *dict = NULL;
+    struct buffer *out;
+    gif_u8 codebits;
+
+    out = buf_open (NULL, 0);
+    codebits = ALPH_BIT_SIZE + 1;
+    dict = (struct dict *) malloc (sizeof (*dict));
+    init_bit_io (&io, in);
+    clear_dict (dict);
+    pat_dict.is_char = 0;
+    pat_dict.i = pat_dict.j = 0;
+    while (gif_true) {
+        gif_u16 code;
+        gif_u8 nbits;
+
+        /* (1) Read the code and update the output. */
+
+read_code:
+        nbits = read_bits (&io, &code, codebits);
+        /* TODO: also stop when we cannot read any more bits from the
+           input buffer. */
+        assert (nbits == codebits);
+        if (code == STOP_CODE) {
+            goto done;
+        }
+        else if (code == CLEAR_CODE) {
+            clear_dict (dict);
+            codebits = ALPH_BIT_SIZE + 1;
+            pat_dict.is_char = 0;
+            pat_dict.i = pat_dict.j = (gif_u32) out->sz;
+            goto read_code;
+        }
+        else if (get_pattern (dict, code, &code_pat)) {
+            /* If the code is in the dict write its pattern to
+               the output. */
+
+            if (code_pat.is_char) {
+                buf_write_u8 (out, (gif_u8) code_pat.i);
+            }
+            else {
+                gif_u32 k = 0;
+                for (k = code_pat.i; k <= code_pat.j; k++) {
+                    gif_u8 b = *buf_byte_at (out, k);
+                    buf_write_u8 (out, b);
+                }
+            }
+            prev_code_pat = code_pat;
+        }
+        else {
+            /* Special case in which the pattern for the code has not
+               been inserted in the decoders dictionary, in which case
+               we need to emit the last pattern + the first character
+               of the last pattern. */
+
+            gif_u32 k = 0;
+
+            /* TODO: Comment this... */
+            code_pat.is_char = gif_false;
+            code_pat.i = (gif_u32) out->sz;
+            if (prev_code_pat.is_char) {
+                buf_write_u8 (out, prev_code_pat.i);
+                buf_write_u8 (out, prev_code_pat.i);
+            }
+            else {
+                gif_u8 b;
+                for (k = prev_code_pat.i; k <= prev_code_pat.j; k++) {
+                    b = *buf_byte_at (out, k);
+                    buf_write_u8(out, b);
+                }
+                b = *buf_byte_at (out, prev_code_pat.i);
+                buf_write_u8 (out, b);
+            }
+            code_pat.j = (gif_u32) (out->sz - 1);
+            prev_code_pat = code_pat;
+        }
+
+        /* (2) Having updated the output string, we need to search for
+           new pattern and update the dictionary if we find one. */
+
+        while (gif_true) {
+            gif_u16 code;
+
+            if (!get_code (dict, out->ptr, &pat_dict, &code)) {
+                /* Found a new pattern. Add it to the dictionary
+                   and stop for now. */
+
+                gif_u16 new_code;
+
+                new_code = add_pattern (dict, out->ptr, &pat_dict);
+                if (new_code == ((1 << codebits) - 1)) {
+                    /* The code for the added pattern is the last code for
+                       the current code bit size. The next code could
+                       represent a pattern which is not in the dictionary
+                       yet, i.e. it does not fit into the current code
+                       bit size. Hence, increase the bit size here. */
+                    codebits++;
+                }
+                pat_dict.i = pat_dict.j;
+                break; /* TODO: Delete this break statement? */
+            }
+            else if (pat_dict.j == (out->sz - 1)) {
+                /* No new pattern found. Stop for now. */
+                break;
+            }
+            else {
+                pat_dict.j++;
+            }
+        }
+    }
+
+done:
+    free (dict);
+    return out;
+}
+
+#endif
 
 /* -------------------------- gif encoding -------------------------- */
 

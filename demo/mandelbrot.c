@@ -57,6 +57,20 @@ add_mandel_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
 }
 
 
+
+static void
+add_frame (struct gif *gif, struct gif_frame *frm, gif_u8 idx)
+{
+    int i, j;
+    for (i = 0; i < H; i++) {
+        for (j = 0; j < W; j++) {
+            at(frm, i, j) = idx;
+        }
+    }
+    gif_add_frame (gif, frm);
+}
+
+
 static RGB 
 jet (float v, float vmin, float vmax)
 {
@@ -121,8 +135,8 @@ main (int argc, char **argv)
     frm.cols = (gif_u8 *) malloc (W * H);
 
     gif = gif_begin (&desc);
-    add_mandelbrot_frame (gif, &frm, 0);
-//    add_frame (gif, &frm, 100);
+//    add_mandel_frame (gif, &frm, 0);
+    add_frame (gif, &frm, 100);
 //    add_frame (gif, &frm, 200);
     gif_end (&gif);
 
