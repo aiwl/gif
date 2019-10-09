@@ -24,11 +24,6 @@ GIF_STATIC_ASSERT (sizeof (gif_u32) == 4);
 #endif
 
 
-/* Offsets `ptr` by `n` bytes. */
-#define offset_ptr(ptr, n)    \
-    ((void *) (((uintptr_t) (ptr)) + n))
-
-
 struct gif {
     gif_u16 w, h;
     gif_u16 ti;
@@ -62,7 +57,7 @@ write_word (struct gif *gif, gif_u16 w)
 
 /* ------------------------- utility buffer ------------------------- */
 
-struct buffer { void *ptr; size_t sz, cap, cur; };
+struct buf { gif_u8 *ptr; size_t sz, cap, cur; };
 
 
 /* Returns the amount of bytes left to read from the buffer. */
@@ -73,8 +68,7 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
 /* Returns a pointer to the byte a position `i` in `buf`. `i` must be
    smaller than the buffer's size. */
 #define buf_byte_at(buf, i)                 \
-    (assert (i < (buf)->sz),                \
-     (gif_u8 *) offset_ptr (buf->ptr, i))
+    (assert (i < (buf)->sz), buf->ptr + i)
 
 
 /* Writes a value, `val`, of a specific type to `buf`. Resizes the buffer
@@ -85,7 +79,7 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
         *((T *) offset_ptr ((buf)->ptr, (buf)->cur)) = (val);   \
         (buf)->cur += sizeof (T);                               \
     } while (0)
-#define buf_write_u8(buf, val)                                  \
+#define buf_write_byte(buf, val)                                  \
     buf_write_t ((buf), gif_u8, (val))
 
 
@@ -96,7 +90,7 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
     (buf_left (buf) < sizeof (T))                               \
      ? 0 : (*(val) = *((T *) buf_byte_at (buf, buf->cur)),      \
            buf->cur += sizeof (T), sizeof (T))
-#define buf_read_u8(buf, val)                                   \
+#define buf_read_byte(buf, val)                                   \
     buf_read_t (buf, gif_u8, val)
 
 
@@ -104,11 +98,11 @@ struct buffer { void *ptr; size_t sz, cap, cur; };
    of the buffer in bytes, if `sz` is zero and empty buffer is created.
    `ptr` points to memory used to initialize the buffer, if `ptr` is
    not NULL `sz` bytes are copied from it. */
-static struct buffer *
+static struct buf *
 buf_open (void const *ptr, size_t sz)
 {
     void *ptr0 = NULL;
-    struct buffer *buf = NULL;
+    struct buf *buf = NULL;
     size_t cap;
 
     cap = sz ? sz : 1;
@@ -127,7 +121,7 @@ buf_open (void const *ptr, size_t sz)
 /* Closes the buffer pointed to by `buf` and releases all its
    resources. */
 static void
-buf_close (struct buffer *buf)
+buf_close (struct buf *buf)
 {
     if (!buf)
         return;
@@ -137,7 +131,7 @@ buf_close (struct buffer *buf)
 
 
 static void
-buf_resize (struct buffer *buf, size_t newsz)
+buf_resize (struct buf *buf, size_t newsz)
 {
     if (buf->cap < newsz) {
         void *newptr;
@@ -161,7 +155,7 @@ buf_resize (struct buffer *buf, size_t newsz)
 struct bit_io {
 
     /* Buffer to write/read. */
-    struct buffer *buf;
+    struct buf *buf;
 
     /* Bit cursor. Offset to buffer head in bits. */
     size_t bitcur;
@@ -193,7 +187,7 @@ put_bits (gif_u8 a, gif_u8 b, gif_u8 fa, gif_u8 fb, gif_u8 n)
 
 
 static void
-init_bit_io (struct bit_io *io, struct buffer *buf)
+init_bit_io (struct bit_io *io, struct buf *buf)
 {
     io->buf = buf;
     io->bitcur = 8 * buf->cur;
@@ -226,7 +220,7 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
 
         n = min (nbits, 8);
         byte = put_bits (0, u & 0xFF, 0, 0, n);
-        buf_write_u8 (io->buf, byte);
+        buf_write_byte (io->buf, byte);
         io->bitcur += n;
         nbits -= n;
         u >>= n;
@@ -264,7 +258,7 @@ read_bits (struct bit_io *io, gif_u16 *u, gif_u8 nbits)
         gif_u32 nbytes;
 
         n = min (nbits, 8);
-        nbytes = buf_read_u8 (io->buf, &byte);
+        nbytes = buf_read_byte (io->buf, &byte);
         if (!nbytes)
             return br;
         utmp = (gif_u16) put_bits (0, byte, 0, 0, n);
@@ -468,12 +462,12 @@ get_pattern (struct dict *dict, gif_u16 code, struct pattern *pat)
 /* Compresses `nbytes` pointed to by `bytes` and returns the compressed
    bytes as a buffer. The caller is responsible to free the returned
    buffer. */
-static struct buffer *
+static struct buf *
 lzw_compress (gif_u8 const *bytes, size_t nbytes)
 {
     struct bit_io io;
     struct dict *dict = NULL;
-    struct buffer *buf = NULL;
+    struct buf *buf = NULL;
     struct pattern pat;
     gif_u8 codebits;
 
@@ -527,20 +521,16 @@ done:
 }
 
 
-#if 1
-
-
-static struct buffer *
-lzw_decompress (struct buffer *in)
+static struct buf *
+lzw_decompress (struct buf *in)
 {
-    /* This pattern used to update the dictionary
-       during decoding. */
+    /* This pattern used to update the dictionary during decoding. */
     struct pattern pat_dict;
     struct pattern code_pat = { 0 };
     struct pattern prev_code_pat = { 0 };
     struct bit_io io;
     struct dict *dict = NULL;
-    struct buffer *out;
+    struct buf *out;
     gif_u8 codebits;
 
     out = buf_open (NULL, 0);
@@ -576,13 +566,13 @@ read_code:
                the output. */
 
             if (code_pat.is_char) {
-                buf_write_u8 (out, (gif_u8) code_pat.i);
+                buf_write_byte (out, (gif_u8) code_pat.i);
             }
             else {
                 gif_u32 k = 0;
                 for (k = code_pat.i; k <= code_pat.j; k++) {
                     gif_u8 b = *buf_byte_at (out, k);
-                    buf_write_u8 (out, b);
+                    buf_write_byte (out, b);
                 }
             }
             prev_code_pat = code_pat;
@@ -599,17 +589,17 @@ read_code:
             code_pat.is_char = gif_false;
             code_pat.i = (gif_u32) out->sz;
             if (prev_code_pat.is_char) {
-                buf_write_u8 (out, prev_code_pat.i);
-                buf_write_u8 (out, prev_code_pat.i);
+                buf_write_byte (out, prev_code_pat.i);
+                buf_write_byte (out, prev_code_pat.i);
             }
             else {
                 gif_u8 b;
                 for (k = prev_code_pat.i; k <= prev_code_pat.j; k++) {
                     b = *buf_byte_at (out, k);
-                    buf_write_u8(out, b);
+                    buf_write_byte(out, b);
                 }
                 b = *buf_byte_at (out, prev_code_pat.i);
-                buf_write_u8 (out, b);
+                buf_write_byte (out, b);
             }
             code_pat.j = (gif_u32) (out->sz - 1);
             prev_code_pat = code_pat;
@@ -653,8 +643,6 @@ done:
     free (dict);
     return out;
 }
-
-#endif
 
 /* -------------------------- gif encoding -------------------------- */
 
@@ -714,7 +702,7 @@ write_sub_blocks (struct gif *gif, gif_u8 const *bytes, size_t nbytes)
 static void
 write_color_indices (struct gif *gif, gif_u8 *cols, size_t n)
 {
-    struct buffer *compr_cols = NULL;
+    struct buf *compr_cols = NULL;
     compr_cols = lzw_compress (cols, n);
     write_sub_blocks (gif, compr_cols->ptr, compr_cols->sz);
     buf_close (compr_cols);
@@ -760,3 +748,17 @@ gif_end (struct gif **gif)
     *gif = NULL;
 }
 
+
+/* --------------------------- lzw tests ---------------------------- */
+
+#ifdef GIF_LZW_TESTS
+
+
+int
+main (int argc, char **argv)
+{
+    return 0;
+}
+
+
+#endif
