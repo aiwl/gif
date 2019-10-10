@@ -1,4 +1,4 @@
-/* Declares a simple gif encoder.
+/* Declarations for a simple gif encoder.
    See UNLICENSE for copyright notice. */
 
 #ifndef GIF_H
@@ -18,7 +18,6 @@
     typedef char GIF_UNIQUE_NAME (gif_dummy_array)[(cond) ? 1 : -1]
 
 
-struct gif;
 
 typedef unsigned char   gif_u8;
 typedef unsigned short  gif_u16;
@@ -27,28 +26,20 @@ GIF_STATIC_ASSERT (sizeof (gif_u8) == 1);
 GIF_STATIC_ASSERT (sizeof (gif_u16) == 2);
 
 
-typedef void (*gif_read) (void *ud, void *ptr, size_t sz);
 typedef void (*gif_write) (void *ud, void const *ptr, size_t sz);
 
 
-struct gif_desc {
-    gif_u16 w, h;
-    gif_u16 ti;
-    gif_u8 gct[256][3];
-
-    void *write_ud;
-    gif_write write_fn;
-};
+struct gif;
+struct gif_ct { gif_u8 ct[256][3]; };
 
 
-struct gif_frame {
-    gif_u8 (*lct)[3];
-    gif_u8 *cols;
-};
-
-
-struct gif *gif_begin (struct gif_desc const *desc);
-void gif_add_frame (struct gif *gif, struct gif_frame const *frm);
+struct gif *gif_begin (gif_u16 w, gif_u16 h, gif_u16 ti,
+                       struct gif_ct const *gct,
+                       void *write_ud, gif_write write_fn);
 void gif_end (struct gif **gif);
+void gif_begin_frame (struct gif *gif, struct gif_ct const *lct);
+void gif_end_frame (struct gif *gif);
+void gif_set_pixel (struct gif *gif, gif_u16 i, gif_u16 j, gif_u8 idx);
+
 
 #endif

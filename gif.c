@@ -1,4 +1,4 @@
-/* Defines a simple gif encoder.
+/* Definitions for a simple gif encoder.
    See UNLICENSE for copyright notice. */
 
 #include "gif.h"
@@ -27,6 +27,8 @@ GIF_STATIC_ASSERT (sizeof (gif_u32) == 4);
 struct gif {
     gif_u16 w, h;
     gif_u16 ti;
+
+    gif_u8 *cols;
 
     void *write_ud;
     gif_write write_fn;
@@ -227,49 +229,6 @@ write_bits (struct bit_io *io, gif_u16 u, gif_u8 nbits)
     }
 }
 
-
-/* Reads `nbits` bits from `io` and stores the result in `u`. Returns
-   the number of bits actually read. */
-static gif_u8
-read_bits (struct bit_io *io, gif_u16 *u, gif_u8 nbits)
-{
-    gif_u8 br = 0;
-
-    assert (nbits <= 16);
-
-    *u = 0;
-    if (!nbits)
-        return 0;
-
-    if (io->bitcur & 7) { /* remaining bits is last read byte? */
-        gif_u8 rem_bits, *cur_byte, n;
-
-        rem_bits = calc_rem_bits (io->bitcur);
-        cur_byte = buf_byte_at (io->buf, io->bitcur / 8);
-        n = min (nbits, rem_bits);
-        *u = put_bits ((*u) & 0xFF, *cur_byte, 0, 8 - rem_bits, n);
-        io->bitcur += n;
-        nbits -= n;
-        br += n;
-    }
-    while (nbits) {
-        gif_u8 n, byte;
-        gif_u16 utmp;
-        gif_u32 nbytes;
-
-        n = min (nbits, 8);
-        nbytes = buf_read_byte (io->buf, &byte);
-        if (!nbytes)
-            return br;
-        utmp = (gif_u16) put_bits (0, byte, 0, 0, n);
-        *u = (*u) | (utmp << br);
-        io->bitcur += n;
-        nbits -= n;
-        br += n;
-    }
-    return br;
-}
-
 /* ---------------------- dictionary patterns -----------------------
    Definitions for a dictionary which is used to map pattern to codes
    and vice versa. */
@@ -436,27 +395,6 @@ get_code (struct dict *dict, gif_u8 const *str,
     }
 }
 
-
-static gif_bool
-get_pattern (struct dict *dict, gif_u16 code, struct pattern *pat)
-{
-    gif_u16 id;
-
-    if (code < CLEAR_CODE) {
-        pat->is_char = 1;
-        pat->i = (gif_u32) code;
-        return gif_true;
-    }
-    id = code_to_dict_id (code);
-    if (dict->nentries <= id) {
-        return gif_false;
-    }
-    else {
-        *pat = dict->entries[id].pat;
-        return gif_true;
-    }
-}
-
 /* ------------------------ lzw transcoding ------------------------- */
 
 /* Compresses `nbytes` pointed to by `bytes` and returns the compressed
@@ -520,148 +458,27 @@ done:
     return buf;
 }
 
-
-static struct buf *
-lzw_decompress (struct buf *in)
-{
-    /* This pattern used to update the dictionary during decoding. */
-    struct pattern pat_dict;
-    struct pattern code_pat = { 0 };
-    struct pattern prev_code_pat = { 0 };
-    struct bit_io io;
-    struct dict *dict = NULL;
-    struct buf *out;
-    gif_u8 codebits;
-
-    out = buf_open (NULL, 0);
-    codebits = ALPH_BIT_SIZE + 1;
-    dict = (struct dict *) malloc (sizeof (*dict));
-    init_bit_io (&io, in);
-    clear_dict (dict);
-    pat_dict.is_char = 0;
-    pat_dict.i = pat_dict.j = 0;
-    while (gif_true) {
-        gif_u16 code;
-        gif_u8 nbits;
-
-        /* (1) Read the code and update the output. */
-
-read_code:
-        nbits = read_bits (&io, &code, codebits);
-        /* TODO: also stop when we cannot read any more bits from the
-           input buffer. */
-        assert (nbits == codebits);
-        if (code == STOP_CODE) {
-            goto done;
-        }
-        else if (code == CLEAR_CODE) {
-            clear_dict (dict);
-            codebits = ALPH_BIT_SIZE + 1;
-            pat_dict.is_char = 0;
-            pat_dict.i = pat_dict.j = (gif_u32) out->sz;
-            goto read_code;
-        }
-        else if (get_pattern (dict, code, &code_pat)) {
-            /* If the code is in the dict write its pattern to
-               the output. */
-
-            if (code_pat.is_char) {
-                buf_write_byte (out, (gif_u8) code_pat.i);
-            }
-            else {
-                gif_u32 k = 0;
-                for (k = code_pat.i; k <= code_pat.j; k++) {
-                    gif_u8 b = *buf_byte_at (out, k);
-                    buf_write_byte (out, b);
-                }
-            }
-            prev_code_pat = code_pat;
-        }
-        else {
-            /* Special case in which the pattern for the code has not
-               been inserted in the decoders dictionary, in which case
-               we need to emit the last pattern + the first character
-               of the last pattern. */
-
-            gif_u32 k = 0;
-
-            /* TODO: Comment this... */
-            code_pat.is_char = gif_false;
-            code_pat.i = (gif_u32) out->sz;
-            if (prev_code_pat.is_char) {
-                buf_write_byte (out, prev_code_pat.i);
-                buf_write_byte (out, prev_code_pat.i);
-            }
-            else {
-                gif_u8 b;
-                for (k = prev_code_pat.i; k <= prev_code_pat.j; k++) {
-                    b = *buf_byte_at (out, k);
-                    buf_write_byte (out, b);
-                }
-                b = *buf_byte_at (out, prev_code_pat.i);
-                buf_write_byte (out, b);
-            }
-            code_pat.j = (gif_u32) (out->sz - 1);
-            prev_code_pat = code_pat;
-        }
-
-        /* (2) Having updated the output string, we need to search for
-           new pattern and update the dictionary if we find one. */
-
-        while (gif_true) {
-            gif_u16 code;
-
-            if (!get_code (dict, out->ptr, &pat_dict, &code)) {
-                /* Found a new pattern. Add it to the dictionary
-                   and stop for now. */
-
-                gif_u16 new_code;
-
-                new_code = add_pattern (dict, out->ptr, &pat_dict);
-                if (new_code == ((1 << codebits) - 1)) {
-                    /* The code for the added pattern is the last code for
-                       the current code bit size. The next code could
-                       represent a pattern which is not in the dictionary
-                       yet, i.e. it does not fit into the current code
-                       bit size. Hence, increase the bit size here. */
-                    codebits++;
-                }
-                pat_dict.i = pat_dict.j;
-                break; /* TODO: Delete this break statement? */
-            }
-            else if (pat_dict.j == (out->sz - 1)) {
-                /* No new pattern found. Stop for now. */
-                break;
-            }
-            else {
-                pat_dict.j++;
-            }
-        }
-    }
-
-done:
-    free (dict);
-    return out;
-}
-
 /* -------------------------- gif encoding -------------------------- */
 
 struct gif *
-gif_begin (struct gif_desc const *desc)
+gif_begin (gif_u16 w, gif_u16 h, gif_u16 ti, struct gif_ct const *gct,
+           void *write_ud, gif_write write_fn)
 {
     struct gif *gif;
 
     gif = (struct gif *) malloc (sizeof (*gif));
-    gif->write_fn = desc->write_fn;
-    gif->write_ud = desc->write_ud;
-    gif->w = desc->w;
-    gif->h = desc->h;
-    gif->ti = desc->ti;
+    gif->write_fn = write_fn;
+    gif->write_ud = write_ud;
+    gif->w = w;
+    gif->h = h;
+    gif->ti = ti;
+    gif->cols = (gif_u8 *) malloc (gif->w * gif->h);
+    memset (gif->cols, 0, gif->w * gif->h);
 
     write_bytes (gif, "GIF", 3);
     write_bytes (gif, "89a", 3);
-    write_word (gif, desc->w);
-    write_word (gif, desc->h);
+    write_word (gif, gif->w);
+    write_word (gif, gif->h);
     /* Global color flag, 1bit; 8bits color palette
        (256 colors), 3bit; color table is not sorted, 1bit;
        size of the global color table (256), 3bit. */
@@ -670,7 +487,7 @@ gif_begin (struct gif_desc const *desc)
                                as the background color. */
     write_byte (gif, 0);    /* Do not give pixel aspect ratio
                                information. */
-    write_bytes (gif, desc->gct, 256 * 3);
+    write_bytes (gif, gct->ct, 256 * 3);
     return gif;
 }
 
@@ -710,8 +527,10 @@ write_color_indices (struct gif *gif, gif_u8 *cols, size_t n)
 
 
 void
-gif_add_frame (struct gif *gif, struct gif_frame const *frm)
+gif_begin_frame (struct gif *gif, struct gif_ct const *lct)
 {
+    memset (gif->cols, 0, gif->w * gif->h);
+
     /* Graphic control extension */
     write_byte (gif, 0x21);
     write_byte (gif, 0xf9);
@@ -728,15 +547,27 @@ gif_add_frame (struct gif *gif, struct gif_frame const *frm)
     write_word (gif, gif->w);
     write_word (gif, gif->h);
 
-    if (frm->lct) {
+    if (lct) {
         write_byte (gif, 0x83);
-        write_bytes (gif, frm->lct, 256 * 3);
+        write_bytes (gif, lct->ct, 256 * 3);
     }
     else {
         write_byte (gif, 0x00);
     }
+}
 
-    write_color_indices (gif, frm->cols, gif->w * gif->h);
+
+void
+gif_set_pixel (struct gif *gif, gif_u16 i, gif_u16 j, gif_u8 idx)
+{
+    gif->cols[gif->w * i + j] = idx;;
+}
+
+
+void
+gif_end_frame (struct gif *gif)
+{
+    write_color_indices (gif, gif->cols, gif->w * gif->h);
 }
 
 
@@ -744,39 +575,7 @@ void
 gif_end (struct gif **gif)
 {
     write_byte (*gif, 0x3b);
+    free ((*gif)->cols);
     free (*gif);
     *gif = NULL;
 }
-
-
-/* --------------------------- lzw tests ---------------------------- */
-
-//#ifdef GIF_LZW_TESTS
-
-#define N       (1024 * 1024)
-
-
-static struct buf *
-filled_buf (gif_u32 val)
-{
-    int i;
-    struct buf *buf;
-    buf = buf_open (NULL, 0);
-    for (i = 0; i < N; i++)
-        buf_write_byte (buf, val);
-    return buf;
-}
-
-
-int
-main (int argc, char **argv)
-{
-    struct buf *in, *compr, *decompr;
-    in = filled_buf (42);
-    compr = lzw_compress (in->ptr, in->sz);
-    decompr = lzw_decompress (compr);
-    return 0;
-}
-
-
-//#endif
