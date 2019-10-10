@@ -560,7 +560,7 @@ gif_begin_frame (struct gif *gif, struct gif_ct const *lct)
 void
 gif_set_pixel (struct gif *gif, gif_u16 i, gif_u16 j, gif_u8 idx)
 {
-    gif->cols[gif->w * i + j] = idx;;
+    gif->cols[gif->w * i + j] = idx;
 }
 
 
